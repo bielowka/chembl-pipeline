@@ -1,0 +1,4 @@
+*.parquet
+.DS_Store
+spark_airflow/data_platform/data_share/
+.idea/

@@ -1,0 +1,130 @@
+---
+- name: Postawienie lokalnego klastra Spark (1 Master, 3 Workery) i Airflow
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  vars:
+    project_dir: "{{ playbook_dir }}/data_platform"
+  tasks:
+    - name: 1. Utwórz katalog projektowy
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        mode: '0755'
+    
+    - name: 2. Stwórz plik docker-compose.yml
+      copy:
+        dest: "{{ project_dir }}/docker-compose.yml"
+        content: |
+          version: '3.8'
+          services:
+            spark-master:
+              image: custom-spark-rdkit:latest
+              container_name: spark-master
+              ports:
+                - '8080:8080'
+                - '7077:7077'
+              command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+              hostname: spark-master
+              networks:
+                - spark-net
+              volumes:
+                - ./data_share:/opt/spark/data
+                - ./data_share:/opt/airflow/data
+
+            spark-worker-1:
+              image: custom-spark-rdkit:latest
+              container_name: spark-worker-1
+              environment:
+                - SPARK_WORKER_MEMORY=1G
+                - SPARK_WORKER_CORES=1
+              depends_on:
+                - spark-master
+              command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+              hostname: spark-worker-1
+              networks:
+                - spark-net
+              volumes:
+                - ./data_share:/opt/spark/data
+                - ./data_share:/opt/airflow/data
+
+            spark-worker-2:
+              image: custom-spark-rdkit:latest
+              container_name: spark-worker-2
+              environment:
+                - SPARK_WORKER_MEMORY=1G
+                - SPARK_WORKER_CORES=1
+              depends_on:
+                - spark-master
+              command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+              hostname: spark-worker-2
+              networks:
+                - spark-net
+              volumes:
+                - ./data_share:/opt/spark/data
+                - ./data_share:/opt/airflow/data
+
+            spark-worker-3:
+              image: custom-spark-rdkit:latest
+              container_name: spark-worker-3
+              environment:
+                - SPARK_WORKER_MEMORY=1G
+                - SPARK_WORKER_CORES=1
+              depends_on:
+                - spark-master
+              command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+              hostname: spark-worker-3
+              networks:
+                - spark-net
+              volumes:
+                - ./data_share:/opt/spark/data
+                - ./data_share:/opt/airflow/data
+
+            airflow:
+              image: my-airflow-spark:latest
+              container_name: airflow-standalone
+              environment:
+                - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+                - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+                - AIRFLOW__CORE__LOAD_EXAMPLES=False
+                - _AIRFLOW_DB_MIGRATE=true
+                - _AIRFLOW_WWW_USER_CREATE=true
+                - _AIRFLOW_WWW_USER_USERNAME=admin
+                - _AIRFLOW_WWW_USER_PASSWORD=admin
+                - AIRFLOW_CONN_SPARK_DEFAULT=spark://spark%3A%2F%2Fspark-master:7077
+              ports:
+                - "8081:8080"
+              command: bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || true && airflow webserver -p 8080 & airflow scheduler"
+              depends_on:
+                - spark-master
+              volumes:
+                - airflow_db:/opt/airflow
+                - ./dags:/opt/airflow/dags
+                - ./data_share:/opt/airflow/data
+              networks:
+                - spark-net
+
+          volumes:
+            airflow_db:
+
+          networks:
+            spark-net:
+              driver: bridge
+    
+    - name: "3. Uruchom kontenery"
+      shell: |
+        if docker compose version >/dev/null 2>&1; then
+          # docker compose down
+          docker compose up -d
+        else
+          # docker-compose down
+          docker-compose up -d
+        fi
+      args:
+        chdir: "{{ project_dir }}"
+    
+    - name: 4. Wyświetl informację
+      debug:
+        msg: 
+          - "Spark Master: http://localhost:8080"
+          - "Airflow: http://localhost:8081 (admin/admin)"

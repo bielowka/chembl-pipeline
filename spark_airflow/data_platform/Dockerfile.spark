@@ -1,0 +1,6 @@
+FROM apache/spark:latest
+USER root
+# Instalacja RDKit
+RUN pip install --no-cache-dir rdkit
+# Powrót do użytkownika spark (zazwyczaj UID 185)
+USER 185
