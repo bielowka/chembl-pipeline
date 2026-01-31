@@ -20,7 +20,8 @@ parser.add_argument("--db_host", type=str, default="postgres-db") # Nazwa serwis
 args = parser.parse_args()
 
 # --- KONFIGURACJA POŁĄCZENIA ---
-DB_HOST = "192.168.0.5"
+# DB_HOST = "192.168.0.5"
+DB_HOST = args.db_host
 DB_PORT = "5432"
 DB_NAME = "chembl_36"
 DB_USER = "admin"
@@ -52,11 +53,13 @@ sql_query = """
     JOIN compound_structures cs ON act.molregno = cs.molregno
     WHERE 
         act.standard_type = 'IC50'
+        AND csq.organism = 'Homo sapiens'
         AND act.standard_value IS NOT NULL
         AND act.standard_value < 10000000000
-        AND csq.organism = 'Homo sapiens'
 ) as chembl_data
 """
+
+# AND csq.organism = 'Homo sapiens'
 
 # --- 1. INICJALIZACJA SPARKA ---
 spark = SparkSession.builder \
