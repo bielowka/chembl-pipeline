@@ -51,8 +51,8 @@ sql_query = """
     JOIN molecule_dictionary md ON act.molregno = md.molregno
     JOIN compound_structures cs ON act.molregno = cs.molregno
     WHERE 
-        act.standard_type = 'IC50'          -- Interesuje nas tylko IC50
-        AND act.standard_value IS NOT NULL  -- Odrzucamy puste wyniki
+        act.standard_type = 'IC50'
+        AND act.standard_value IS NOT NULL
         AND act.standard_value < 10000000000
         AND csq.organism = 'Homo sapiens'
 ) as chembl_data
