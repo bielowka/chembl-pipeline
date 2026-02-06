@@ -14,9 +14,13 @@ except ImportError:
     Chem = None
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--mode", type=str, required=True, choices=["HUMAN", "ALL"], help="Tryb filtrowania")
 parser.add_argument("--output_path", type=str, required=True, help="Ścieżka do zapisu wynikowego pliku")
 parser.add_argument("--db_host", type=str, default="postgres-db") # Nazwa serwisu w docker-compose
+
+parser.add_argument("--target_name", type=str, choices=["EGFR", "ALL"], default="ALL", help="Nazwa celu")
+parser.add_argument("--organism_scope", type=str, choices=["HUMAN", "ALL"], default="HUMAN", help="Czy filtrować organizm")
+parser.add_argument("--feature_mode", type=str, choices=["GRAPH_ONLY", "WITH_METADATA"], default="WITH_METADATA", help="Zakres kolumn")
+
 args = parser.parse_args()
 
 # --- KONFIGURACJA POŁĄCZENIA ---
@@ -27,43 +31,30 @@ DB_NAME = "chembl_36"
 DB_USER = "admin"
 DB_PASSWORD = "admin"
 
-sql_query = """
-(
-    SELECT 
-        act.activity_id,
-        act.assay_id,
-        act.standard_type,
-        CAST(act.standard_value AS DOUBLE PRECISION) as standard_value,
-        act.standard_units,
-        act.standard_relation,
-        act.pchembl_value,
-        act.activity_comment,
-        act.data_validity_comment,
-        a.confidence_score,
-        md.chembl_id,
-        cs.canonical_smiles,
-        csq.organism,
-        td.pref_name as target_name
-    FROM activities act
-    JOIN assays a ON act.assay_id = a.assay_id
-    JOIN target_dictionary td ON a.tid = td.tid
-    JOIN target_components tc ON td.tid = tc.tid
-    JOIN component_sequences csq ON tc.component_id = csq.component_id
-    JOIN molecule_dictionary md ON act.molregno = md.molregno
-    JOIN compound_structures cs ON act.molregno = cs.molregno
-    WHERE 
-        act.standard_type = 'IC50'
-        AND csq.organism = 'Homo sapiens'
-        AND act.standard_value IS NOT NULL
-        AND act.standard_value < 10000000000
-) as chembl_data
-"""
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# AND csq.organism = 'Homo sapiens'
+def load_query(relative_path):
+    full_path = os.path.join(BASE_DIR, relative_path)
+    print(f"Wczytywanie SQL z: {full_path}")
+
+    with open(full_path, 'r') as f:
+        return f.read()
+
+if args.organism_scope == "HUMAN":
+    raw_sql_query = load_query("sql/humanorgs.sql")
+else:
+    raw_sql_query = load_query("sql/allorgs.sql")
+
+target_clause = ""
+if args.target_name and args.target_name != "ALL":
+    safe_target = args.target_name.replace("'", "")
+    target_clause = f"AND td.pref_name ILIKE '%{safe_target}%'"
+
+sql_query = raw_sql_query.format(target_filter=target_clause)
 
 # --- 1. INICJALIZACJA SPARKA ---
 spark = SparkSession.builder \
-    .appName(f"Chembl_EGFR_Pipeline_{args.mode}") \
+    .appName(f"ChEMBL_{args.target_name}_{args.organism_scope}") \
     .getOrCreate()
 
 print("Rozpoczynam pobieranie danych z PostgreSQL...")
@@ -119,10 +110,8 @@ def smiles_to_graph(smiles):
         if mol is None:
             return None
 
-        # Cechy atomów (np. liczba atomowa)
         atom_features = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
 
-        # Krawędzie (Wiązania)
         src = []
         dst = []
         for bond in mol.GetBonds():
@@ -135,55 +124,40 @@ def smiles_to_graph(smiles):
     except:
         return None
 
-
-# 3. Rejestracja UDF
 smiles_to_graph_udf = udf(smiles_to_graph, graph_schema)
 
 print("Generowanie reprezentacji grafowej...")
 
-# 4. Aplikacja UDF na danych
 df_graphs = df_target.withColumn("graph_data", smiles_to_graph_udf(col("canonical_smiles")))
 
-# 5. Odrzucenie błędów konwersji (tam gdzie RDKit zwrócił null)
 df_graphs = df_graphs.filter(col("graph_data").isNotNull())
 
 # ==============================================================================
 # KONIEC KODU TRANSFORMACJI
 # ==============================================================================
+if args.feature_mode == "GRAPH_ONLY":
+    cols_to_select = [
+        col("canonical_smiles").alias("input_smiles"),
+        col("target_pIC50"),
+        col("graph_data")
+    ]
+else:
+    cols_to_select = [
+        col("canonical_smiles").alias("input_smiles"),
+        col("organism").alias("meta_organism"),
+        col("confidence_score").alias("meta_confidence"),
+        col("target_pIC50"),
+        col("graph_data")
+    ]
 
-# Teraz wybieramy kolumny do zapisu, włączając nową strukturę grafową
-final_df = df_graphs.select(
-    col("canonical_smiles").alias("input_smiles"),
-    col("organism").alias("meta_organism"),
-    col("confidence_score").alias("meta_confidence"),
-    col("target_pIC50"),
-    col("graph_data")  # <--- Dodajemy wygenerowany graf
-)
-# ----------------
-
-
-# Wybór kolumn do zapisu
-# Input 1: SMILES (Tekst)
-# Input 2: Metadata (Liczby/Kategorie)
-# final_df = df_target.select(
-#     col("canonical_smiles").alias("input_smiles"),
-#     col("organism").alias("meta_organism"),
-#     col("confidence_score").alias("meta_confidence"),
-#     col("target_pIC50")
-# )
-
-# Opcjonalnie: Filtrowanie tylko człowieka
-# final_df = final_df.filter(col("meta_organism") == "Homo sapiens")
+final_df = df_graphs.select(*cols_to_select)
 
 print("Próbka danych wyjściowych:")
 final_df.show(5)
 
-# --- 5. ZAPIS DO PLIKU ---
-# Zapisujemy w formacie Parquet (szybki dla Sparka) lub CSV
-output_path = "file:///opt/spark/data/chembl_egfr_output.parquet"
+# output_path = "file:///opt/spark/data/chembl_egfr_output.parquet"
 # final_df.write.mode("overwrite").parquet(output_path)
-#
-# print(f"Dane zapisane w: {output_path}")
+
 print(f"Zapisywanie danych do: {args.output_path}")
 final_df.write.mode("overwrite").parquet(args.output_path)
 

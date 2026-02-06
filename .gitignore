@@ -1,4 +1,7 @@
 *.parquet
+
+!**/ready_datasets/**/*.parquet
+
 .DS_Store
 spark_airflow/data_platform/data_share/*
 !spark_airflow/data_platform/data_share/pipeline.py
