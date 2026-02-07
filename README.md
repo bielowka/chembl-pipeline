@@ -100,6 +100,8 @@ The pipeline can generate different dataset variants:
 | all_meta | ALL | ALL | WITH_METADATA |
 | all_graph | ALL | ALL | GRAPH_ONLY |
 
+### Generated dataset statistics
+Check ready_datasets/datasets_after_eda/verify_chembl_datasets.ipynb, and section "After EDA" in the notebook for detailed statistics and insights on the generated datasets.
 ### Generated all_meta.parquet statistics
 | Metric | Value |
 | :--- | :--- |
