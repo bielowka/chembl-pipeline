@@ -46,6 +46,8 @@ def load_query(relative_path):
 raw_sql_query = load_query("sql/allorgs.sql")
 
 target_clause = ""
+if args.organism_scope == "HUMAN":
+    target_clause += " AND td.organism = 'Homo sapiens'"
 if args.target_name and args.target_name != "ALL":
     safe_target = args.target_name.replace("'", "")
 
