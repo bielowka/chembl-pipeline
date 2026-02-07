@@ -18,7 +18,7 @@ services:
     image: custom-spark-rdkit:latest
     container_name: spark-worker-1
     environment:
-      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_MEMORY=2G
       - SPARK_WORKER_CORES=1
     depends_on:
       - spark-master
@@ -34,7 +34,7 @@ services:
     image: custom-spark-rdkit:latest
     container_name: spark-worker-2
     environment:
-      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_MEMORY=2G
       - SPARK_WORKER_CORES=1
     depends_on:
       - spark-master
@@ -50,7 +50,7 @@ services:
     image: custom-spark-rdkit:latest
     container_name: spark-worker-3
     environment:
-      - SPARK_WORKER_MEMORY=1G
+      - SPARK_WORKER_MEMORY=2G
       - SPARK_WORKER_CORES=1
     depends_on:
       - spark-master
@@ -74,6 +74,7 @@ services:
       - _AIRFLOW_WWW_USER_USERNAME=admin
       - _AIRFLOW_WWW_USER_PASSWORD=admin
       - AIRFLOW_CONN_SPARK_DEFAULT=spark://spark%3A%2F%2Fspark-master:7077
+      - _JAVA_OPTIONS=-Xmx4g
     ports:
       - "8081:8080"
     command: bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || true && airflow webserver -p 8080 & airflow scheduler"

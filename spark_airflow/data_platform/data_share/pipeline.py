@@ -48,7 +48,14 @@ raw_sql_query = load_query("sql/allorgs.sql")
 target_clause = ""
 if args.target_name and args.target_name != "ALL":
     safe_target = args.target_name.replace("'", "")
-    target_clause = f"AND td.pref_name ILIKE '%{safe_target}%'"
+
+    # SPECJALNA OBSŁUGA DLA EGFR
+    # Jeśli szukamy EGFR, musimy uwzględnić też pełną nazwę z bazy
+    if safe_target.upper() == "EGFR":
+        target_clause = "AND (td.pref_name ILIKE '%EGFR%' OR td.pref_name ILIKE '%Epidermal growth factor receptor%')"
+    else:
+        # Domyślne zachowanie dla innych celów
+        target_clause = f"AND td.pref_name ILIKE '%{safe_target}%'"
 
 sql_query = raw_sql_query.format(target_filter=target_clause)
 
@@ -81,7 +88,10 @@ invalid_comments = [
     'Potential author error'
 ]
 
-sdf = sdf.filter(~col("data_validity_comment").isin(invalid_comments))
+sdf = sdf.filter(
+    col("data_validity_comment").isNull() |
+    (~col("data_validity_comment").isin(invalid_comments))
+)
 
 # Usunięcie rekordów z brakującymi wartościami w kluczowych kolumnach
 columns_to_check = [
@@ -95,6 +105,8 @@ columns_to_check = [
 
 sdf = sdf.dropna(subset=columns_to_check)
 
+print(f"Rekordy po usunięciu invalid i nulli: {sdf.count()}")
+
 # Filtrowanie po standard type
 valid_standard_types = [
     'IC50',
@@ -107,11 +119,15 @@ valid_standard_types = [
 
 sdf = sdf.filter(col("standard_type").isin(valid_standard_types))
 
+print(f"Rekordy po przefiltrowaniu standard_type: {sdf.count()}")
+
 # Filtrowanie po assay type
 sdf = sdf.filter(col("assay_type").isin(['B', 'F']))
 
 # Filtrowanie po standard relation
 sdf = sdf.filter(col("standard_relation") == '=')
+
+print(f"Rekordy po przefiltrowaniu assay_type i standard_relation: {sdf.count()}")
 
 # Konwersja jednostek na Molar
 print("Pobieranie przefiltrowanych danych do Pandas...")
@@ -160,8 +176,8 @@ value_col = 'pchembl_value'
 potential_cols = [mol_col, target_id_col, 'organism', 'standard_type', 'bao_format']
 group_cols = [c for c in potential_cols if c in df.columns]
 
-for col in group_cols:
-    df[col] = df[col].fillna('Unknown')
+for c_name in group_cols:
+    df[c_name] = df[c_name].fillna('Unknown')
 
 print(f"Rows before cleaning: {len(df)}")
 print(f"Grouping by: {group_cols}")
@@ -243,12 +259,19 @@ print(f"Liczba cech po: {len(feature_cols) - len(to_drop)}")
 df = df_reduced.copy()
 
 # Skalowanie
-from sklearn.preprocessing import StandardScaler
-
 num_cols = ['mw_freebase', 'alogp', 'hbd', 'rtb']
 
-scaler = StandardScaler()
-df[num_cols] = scaler.fit_transform(df[num_cols])
+for col_name in num_cols:
+    df[col_name] = df[col_name].astype(float)
+
+for col_name in num_cols:
+    mean_val = df[col_name].mean()
+    std_val = df[col_name].std()
+
+    if std_val != 0:
+        df[col_name] = (df[col_name] - mean_val) / std_val
+    else:
+        df[col_name] = 0.0
 
 # Usuniecie bao_endpoint
 if 'bao_endpoint' in df.columns:
@@ -303,31 +326,50 @@ graph_schema = StructType([
     StructField("edge_dst", ArrayType(IntegerType()), False)
 ])
 
+import json
+from pyspark.sql.types import StringType
+from pyspark.sql.functions import udf
+
 
 def smiles_to_graph(smiles):
-    if not smiles:
+    """Konwertuje SMILES na JSON z węzłami i krawędziami."""
+    if not smiles or Chem is None:
         return None
+
     try:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None
 
-        atom_features = [atom.GetAtomicNum() for atom in mol.GetAtoms()]
+        # 1. Węzły (Atomy)
+        atoms = []
+        for atom in mol.GetAtoms():
+            atoms.append({
+                "idx": atom.GetIdx(),
+                "atomic_num": atom.GetAtomicNum(),
+                "symbol": atom.GetSymbol(),
+                "formal_charge": atom.GetFormalCharge(),
+                "num_explicit_hs": atom.GetNumExplicitHs(),
+                "is_aromatic": atom.GetIsAromatic()
+            })
 
-        src = []
-        dst = []
+        # 2. Krawędzie (Wiązania)
+        bonds = []
         for bond in mol.GetBonds():
-            s = bond.GetBeginAtomIdx()
-            e = bond.GetEndAtomIdx()
-            src.extend([s, e])
-            dst.extend([e, s])
+            bonds.append({
+                "source": bond.GetBeginAtomIdx(),
+                "target": bond.GetEndAtomIdx(),
+                "bond_type": str(bond.GetBondType())
+            })
 
-        return (atom_features, src, dst)
-    except:
+        return json.dumps({"atoms": atoms, "bonds": bonds})
+
+    except Exception:
         return None
 
 
-smiles_to_graph_udf = udf(smiles_to_graph, graph_schema)
+smiles_to_graph_udf = udf(smiles_to_graph, StringType())
+print(f"DEBUG: Typ zmiennej UDF to: {type(smiles_to_graph_udf)}")
 df_output = df_spark_final.withColumn("graph_data", smiles_to_graph_udf(col("canonical_smiles")))
 df_output = df_output.filter(col("graph_data").isNotNull())
 
