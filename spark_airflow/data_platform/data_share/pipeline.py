@@ -49,15 +49,33 @@ target_clause = ""
 if args.target_name and args.target_name != "ALL":
     safe_target = args.target_name.replace("'", "")
 
-    # SPECJALNA OBSŁUGA DLA EGFR
-    # Jeśli szukamy EGFR, musimy uwzględnić też pełną nazwę z bazy
     if safe_target.upper() == "EGFR":
         target_clause = "AND (td.pref_name ILIKE '%EGFR%' OR td.pref_name ILIKE '%Epidermal growth factor receptor%')"
     else:
-        # Domyślne zachowanie dla innych celów
         target_clause = f"AND td.pref_name ILIKE '%{safe_target}%'"
 
-sql_query = raw_sql_query.format(target_filter=target_clause)
+quality_clause = """
+AND act.standard_type IN ('IC50', 'Ki', 'Kd', 'EC50', 'AC50', 'GI50')
+AND act.standard_relation = '='
+AND act.standard_value IS NOT NULL
+"""
+
+limit_clause = ""
+if args.target_name == "ALL":
+    limit_clause = "LIMIT 1000000"
+
+# sql_query = raw_sql_query.format(target_filter=target_clause) + f" {limit_clause}"
+try:
+    sql_query = raw_sql_query.format(
+        target_filter=target_clause,
+        quality_filter=quality_clause,
+        limit_filter=limit_clause
+    )
+except KeyError as e:
+    print(f"BŁĄD: W pliku .sql brakuje placeholdera: {e}")
+    raise
+
+print(f"DEBUG: SQL Query Tail:\n... {sql_query[-300:]}")
 
 # --- 1. INICJALIZACJA SPARKA ---
 spark = SparkSession.builder \
