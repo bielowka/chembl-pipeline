@@ -139,6 +139,9 @@ Organism Distribution (Top)
 * **Mus musculus:** 1.4%
 * **Other:** 5.0%
 
+![molecules](all_meta_examples.png)
+![pIC50](all_meta_pIC50.png)
+
 ### Data Processing
 
 The pipeline performs the following data processing steps:
