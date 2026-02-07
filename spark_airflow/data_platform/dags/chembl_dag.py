@@ -86,8 +86,8 @@ with DAG(
 
             total_executor_cores='1',
             executor_cores='1',
-            executor_memory='1g',
-            driver_memory='1g',
+            executor_memory='2g',
+            driver_memory='2g',
 
             name=f"chembl_pipe_{config['id']}",
             packages='org.postgresql:postgresql:42.6.0',

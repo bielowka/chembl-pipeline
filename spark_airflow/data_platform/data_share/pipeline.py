@@ -72,6 +72,7 @@ sdf = spark.read.format("jdbc") \
     .option("user", DB_USER) \
     .option("password", DB_PASSWORD) \
     .option("driver", "org.postgresql.Driver") \
+    .option("fetchsize", "5000") \
     .load()
 
 print(f"Pobrano surowych rekordów: {sdf.count()}")
@@ -173,6 +174,10 @@ df = df.reset_index(drop=True)
 target_id_col = next((col for col in ['molecule_chembl_id', 'target_name', 'tid'] if col in df.columns), 'target_name')
 mol_col = 'standard_inchi_key' if 'standard_inchi_key' in df.columns else 'canonical_smiles'
 value_col = 'pchembl_value'
+
+df[value_col] = pd.to_numeric(df[value_col], errors='coerce')
+df = df.dropna(subset=[value_col])
+
 potential_cols = [mol_col, target_id_col, 'organism', 'standard_type', 'bao_format']
 group_cols = [c for c in potential_cols if c in df.columns]
 
