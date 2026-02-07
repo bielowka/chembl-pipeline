@@ -59,7 +59,7 @@ spark = SparkSession.builder \
 
 print("Rozpoczynam pobieranie danych z PostgreSQL...")
 
-df = spark.read.format("jdbc") \
+sdf = spark.read.format("jdbc") \
     .option("url", f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}") \
     .option("dbtable", sql_query) \
     .option("user", DB_USER) \
@@ -67,11 +67,11 @@ df = spark.read.format("jdbc") \
     .option("driver", "org.postgresql.Driver") \
     .load()
 
-print(f"Pobrano surowych rekordów: {df.count()}")
+print(f"Pobrano surowych rekordów: {sdf.count()}")
 
 # Usunięcie URLi w danych numerycznych
-df = df.withColumn("standard_value", col("standard_value").cast("double"))
-df = df.filter(col("standard_value").isNotNull())
+sdf = sdf.withColumn("standard_value", col("standard_value").cast("double"))
+sdf = sdf.filter(col("standard_value").isNotNull())
 
 # Usuniecie invalid
 invalid_comments = [
@@ -81,7 +81,7 @@ invalid_comments = [
     'Potential author error'
 ]
 
-df = df[~df['data_validity_comment'].isin(invalid_comments)]
+sdf = sdf.filter(~col("data_validity_comment").isin(invalid_comments))
 
 # Usunięcie rekordów z brakującymi wartościami w kluczowych kolumnach
 columns_to_check = [
@@ -93,8 +93,7 @@ columns_to_check = [
     'hba'
 ]
 
-df_clean = df.dropna(subset=columns_to_check)
-df = df_clean.copy()
+sdf = sdf.dropna(subset=columns_to_check)
 
 # Filtrowanie po standard type
 valid_standard_types = [
@@ -106,15 +105,20 @@ valid_standard_types = [
     'GI50'
 ]
 
-df = df[df['standard_type'].isin(valid_standard_types)].copy()
+sdf = sdf.filter(col("standard_type").isin(valid_standard_types))
 
 # Filtrowanie po assay type
-df = df[df['assay_type'].isin(['B', 'F'])]
+sdf = sdf.filter(col("assay_type").isin(['B', 'F']))
 
 # Filtrowanie po standard relation
-df = df[df['standard_relation'] == '=']
+sdf = sdf.filter(col("standard_relation") == '=')
 
 # Konwersja jednostek na Molar
+print("Pobieranie przefiltrowanych danych do Pandas...")
+df = sdf.toPandas()
+sdf.unpersist()
+
+df['units_norm'] = df['standard_units'].astype(str).str.lower().str.strip()
 
 conditions = [
     (df['units_norm'] == 'nm'),                           # Nano (10^-9)
@@ -147,14 +151,12 @@ df['pchembl_value'] = df['pchembl_value'].fillna(calculated_pic50)
 # Usuniecie zadeklarowanych duplikatów
 df = df[df['potential_duplicate'] == False]
 df.drop(columns=['potential_duplicate'], inplace=True)
-
 df = df.reset_index(drop=True)
 
 # Usuwanie duplikatów
 target_id_col = next((col for col in ['molecule_chembl_id', 'target_name', 'tid'] if col in df.columns), 'target_name')
 mol_col = 'standard_inchi_key' if 'standard_inchi_key' in df.columns else 'canonical_smiles'
 value_col = 'pchembl_value'
-
 potential_cols = [mol_col, target_id_col, 'organism', 'standard_type', 'bao_format']
 group_cols = [c for c in potential_cols if c in df.columns]
 
@@ -184,7 +186,6 @@ if not conflicting_groups.empty:
             mask &= (df[col_name] == val)
 
         cols_to_show = ['activity_id', 'standard_value', 'standard_type', 'bao_format', value_col]
-        display(df[mask][[c for c in cols_to_show if c in df.columns]])
 
 df_dedup = df.groupby(group_cols).first().reset_index()
 df_final = pd.merge(df_dedup, valid_groups[['mean']], on=group_cols, how='inner')
@@ -256,31 +257,19 @@ if 'bao_endpoint' in df.columns:
 df = df.reset_index(drop=True)
 
 # Encoding
-df_encoded = df.copy()
-
 top_n = 5
-top_organisms = df_encoded['organism'].value_counts().nlargest(top_n).index.tolist()
-
+top_organisms = df['organism'].value_counts().nlargest(top_n).index.tolist()
 print(f"Top {top_n} organisms: {top_organisms}")
 
-df_encoded['organism_group'] = df_encoded['organism'].apply(
-    lambda x: x if x in top_organisms else 'Other'
-)
+df['organism_group'] = df['organism'].apply(lambda x: x if x in top_organisms else 'Other')
 
 categorical_cols = ['standard_type', 'bao_format', 'organism_group']
 
-encoded_dummies = pd.get_dummies(df_encoded[categorical_cols], prefix=['type', 'bao', 'org'], dtype=int)
+df = pd.get_dummies(df, columns=categorical_cols, prefix=['type', 'bao', 'org'], dtype=int)
 
-df_encoded = pd.concat([df_encoded, encoded_dummies], axis=1)
-
-print(f"\nLiczba kolumn przed encodingiem: {df_clean.shape[1]}")
-print(f"Liczba kolumn po encodingu: {df_encoded.shape[1]}")
-
-new_cols = [c for c in df_encoded.columns if c.startswith(('type_', 'bao_', 'org_'))]
+new_cols = [c for c in df.columns if c.startswith(('type_', 'bao_', 'org_'))]
 print("\nNowe kolumny (cechy dla modelu):")
 print(new_cols)
-
-df = df_encoded.copy()
 
 # Usuniecie niepotrzebnych kolumn
 cols_to_drop = [
@@ -298,19 +287,10 @@ cols_to_drop = [
 
 existing_cols_to_drop = [c for c in cols_to_drop if c in df.columns]
 
-df_ml = df.drop(columns=existing_cols_to_drop)
-df_ml = df_ml.where(pd.notnull(df_ml), None)
+df.drop(columns=existing_cols_to_drop, inplace=True)
+df = df.where(pd.notnull(df), None)
 
-print(f"Gotowy DataFrame Pandas: {df_ml.shape}")
-print(f"Kolumny: {list(df_ml.columns)}")
-
-print(f"Usunięto {len(existing_cols_to_drop)} kolumn.")
-
-print("\nTypy danych w df_ml (powinny być tylko liczbowe):")
-print(df_ml.dtypes.value_counts())
-
-df = df_ml.copy()
-
+print(f"Gotowy DataFrame Pandas: {df.shape}")
 print(f"Unikalne ID? {df.index.nunique() == len(df)}")
 
 # Grafy

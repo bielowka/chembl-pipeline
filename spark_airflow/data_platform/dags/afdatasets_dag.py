@@ -1,5 +1,6 @@
 from airflow import DAG
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from airflow.datasets import Dataset
 from datetime import datetime, timedelta
 
 default_args = {
@@ -63,9 +64,9 @@ DATASET_VARIANTS = [
 ]
 
 with DAG(
-        'chembl_processing_pipeline',
+        'chembl_processing_pipeline_with_datasets',
         default_args=default_args,
-        description='Pipeline przetwarzający dane ChEMBL na Sparku',
+        description='Pipeline przetwarzający dane ChEMBL na Sparku, prodokujacy datasety',
         schedule_interval=None,
         start_date=datetime(2023, 1, 1),
         catchup=False,
@@ -76,7 +77,10 @@ with DAG(
     base_output_dir = "file:///opt/airflow/data/runs/{{ ds }}/{{ ts_nodash }}"
 
     for config in DATASET_VARIANTS:
-        output_file = f"{base_output_dir}/{config['id']}.parquet"
+        physical_output_path = f"{base_output_dir}/{config['id']}.parquet"
+
+        dataset_uri = f"chembl://{config['id']}"
+        dataset_obj = Dataset(dataset_uri)
 
         SparkSubmitOperator(
             task_id=f"process_{config['id']}",
@@ -103,7 +107,10 @@ with DAG(
                 "--target_name", config['target'],
                 "--organism_scope", config['org_scope'],
                 "--feature_mode", config['feat_mode'],
-                "--output_path", output_file
+                "--output_path", physical_output_path
             ],
+
+            outlets=[dataset_obj],
+
             verbose=True
         )
