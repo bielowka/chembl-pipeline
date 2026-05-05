@@ -14,6 +14,18 @@ default_args = {
 
 DATASET_VARIANTS = [
     {
+        "id": "BACE1_meta",
+        "target": "BACE1",
+        "org_scope": "ALL",
+        "feat_mode": "WITH_METADATA"
+    },
+    {
+        "id": "hERG_meta",
+        "target": "hERG",
+        "org_scope": "ALL",
+        "feat_mode": "WITH_METADATA"
+    },
+    {
         "id": "human_egfr_meta",
         "target": "EGFR",
         "org_scope": "HUMAN",

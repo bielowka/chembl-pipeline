@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--output_path", type=str, required=True, help="Ścieżka do zapisu wynikowego pliku")
 parser.add_argument("--db_host", type=str, default="postgres-db") # Nazwa serwisu w docker-compose
 
-parser.add_argument("--target_name", type=str, choices=["EGFR", "ALL"], default="ALL", help="Nazwa celu")
+parser.add_argument("--target_name", type=str, choices=["EGFR", "ALL", "BACE1", "hERG"], default="ALL", help="Nazwa celu")
 parser.add_argument("--organism_scope", type=str, choices=["HUMAN", "ALL"], default="HUMAN", help="Czy filtrować organizm")
 parser.add_argument("--feature_mode", type=str, choices=["GRAPH_ONLY", "WITH_METADATA"], default="WITH_METADATA", help="Zakres kolumn")
 
@@ -53,6 +53,10 @@ if args.target_name and args.target_name != "ALL":
 
     if safe_target.upper() == "EGFR":
         target_clause = "AND (td.pref_name ILIKE '%EGFR%' OR td.pref_name ILIKE '%Epidermal growth factor receptor%')"
+    elif safe_target.upper() == "BACE1":
+        target_clause = "AND (td.pref_name ILIKE '%BACE1%' OR td.pref_name ILIKE '%Beta-secretase 1%')"
+    elif safe_target.upper() == "HERG":
+        target_clause = "AND (td.pref_name ILIKE '%hERG%' OR td.pref_name ILIKE '%KCNH2%' OR td.pref_name ILIKE '%Potassium channel subfamily H member 2%')"
     else:
         target_clause = f"AND td.pref_name ILIKE '%{safe_target}%'"
 
