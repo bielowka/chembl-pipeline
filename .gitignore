@@ -6,3 +6,20 @@
 preprocessing/data_platform/data_share/*
 !preprocessing/data_platform/data_share/pipeline.py
 .idea/
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+**/venv/
+**/.venv/
+
+#ML flow runs
+training/data
+training/mlartifacts
+training/mlruns
+training/savedmodels_pure
+
+#early cvs dumps
+chembl_*.csv
