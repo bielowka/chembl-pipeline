@@ -66,7 +66,7 @@ chemblEDA/
 
 3. **Build and start services**
    ```bash
-   docker-compose -f spark_airflow/data_platform/docker-compose.yml up -d
+   docker-compose -f preprocessing/data_platform/docker-compose.yml up -d
    ```
 
 4. **Access Airflow UI**

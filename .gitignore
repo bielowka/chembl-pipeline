@@ -3,6 +3,6 @@
 !**/ready_datasets/**/*.parquet
 
 .DS_Store
-spark_airflow/data_platform/data_share/*
-!spark_airflow/data_platform/data_share/pipeline.py
+preprocessing/data_platform/data_share/*
+!preprocessing/data_platform/data_share/pipeline.py
 .idea/
